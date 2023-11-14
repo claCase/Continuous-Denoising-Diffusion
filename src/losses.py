@@ -3,6 +3,7 @@ from tensorflow_probability.python.distributions import (
     Normal,
     MultivariateNormalDiag,
     MultivariateNormalTriL,
+    Distribution
 )
 from src.utils import noise, BetaSchedule
 from typing import Union, Tuple
@@ -33,7 +34,7 @@ def score_loss(grad, hess, vr=False, noise_type="gaussian"):
 
 
 def noise_conditional_score_matching(
-    grad: tf.Tensor, samples: tf.Tensor, corrupted_samples: tf.Tensor, sigma: float
+        grad: tf.Tensor, samples: tf.Tensor, corrupted_samples: tf.Tensor, sigma: float
 ):
     """
     Computes de-noising score estimation loss function
@@ -43,17 +44,17 @@ def noise_conditional_score_matching(
     :param sigma: standard deviation
     :return: B
     """
-    targets = -(corrupted_samples - samples) / sigma**2
-    loss = tf.reduce_sum(0.5 * (grad - targets) ** 2, -1) * sigma**2  # B
+    targets = -(corrupted_samples - samples) / sigma ** 2
+    loss = tf.reduce_sum(0.5 * (grad - targets) ** 2, -1) * sigma ** 2  # B
     loss = tf.reduce_mean(loss)
     return loss
 
 
 def annealed_noise_conditional_score_matching(
-    grad: tf.Tensor,
-    samples: tf.Tensor,
-    corrupted_samples: tf.Tensor,
-    sigmas: Union[tf.Tensor, Tuple],
+        grad: tf.Tensor,
+        samples: tf.Tensor,
+        corrupted_samples: tf.Tensor,
+        sigmas: Union[tf.Tensor, Tuple],
 ):
     """
     Computes de-noising score estimation loss function
@@ -72,7 +73,7 @@ def annealed_noise_conditional_score_matching(
     targets = -(r_corrupted - samples[:, None, :]) / sigmas[None, :, None] ** 2
     grad = tf.reshape(grad, (B, s, d))  # B x |σ| x d
     loss = (
-        tf.reduce_sum(0.5 * (grad - targets) ** 2, -1) * sigmas[None, :] ** 2
+            tf.reduce_sum(0.5 * (grad - targets) ** 2, -1) * sigmas[None, :] ** 2
     )  # B x |σ|
     loss = tf.reduce_mean(loss)
     return loss
@@ -99,104 +100,63 @@ def noise_conditional_score_matching_loss(grad, samples, corrupted_samples, sigm
         )
 
 
-def prob0T_VE(data, noised_data, beta_schedule: BetaSchedule, t0, t1):
-    """
-    Computes Variance Exploding Kernel eq. 29  (assumes diagonal covariance matrix):
-    p(t,x) = N(0, s(t) - s(0))
-    :param data: tensor of shape (B,d)
-    :param noised_data: tensor of shape (T, B,d)
-    :param beta_schedule: BetaSchedule function used to noise data
-    :param t0: initial time: 0
-    :param t1: final time: 1
-    :return: list[distribution_kernel, log_prob, grad_log_prob]
-    """
-    noised_data = tf.convert_to_tensor(noised_data)
-    ds = tf.shape(noised_data)
-    T, B, d = ds[0], ds[1], ds[2]
-    dt = (t1 - t0) / T
-    eval_t = tf.linspace(t0, t1, T)
-    s0 = tf.cast(beta_schedule.f(t0), dtype=noised_data.dtype)
-    s = tf.cast(beta_schedule.f(eval_t + dt), dtype=noised_data.dtype)
+def VE_kernel(data, t0, t1, steps, beta_schedule):
+    ds = tf.shape(data)
+    T, B, d = steps, ds[0], ds[1]
+    dt = (t1 - t0) / tf.cast(T, tf.float32)
+    eval_t = tf.random.uniform((T,), t0, t1)
+    s0 = tf.cast(beta_schedule.f(t0), dtype=data.dtype)
+    s = tf.cast(beta_schedule.f(eval_t + dt), dtype=data.dtype)  # T
     kernel_mean = data  # B x d
     kernel_mean = tf.repeat(kernel_mean[None, :, :], T, axis=0)  # T x B x d
-    kernel_variance = s - s0  # steps
+    kernel_variance = s - s0  # T
     kernel_variance = tf.repeat(
         tf.repeat(kernel_variance[:, None], B, axis=1)[..., None], d, axis=-1
-    )
-    with tf.GradientTape() as tape:
-        tape.watch(noised_data)
-        norm_kernel = MultivariateNormalDiag(
-            loc=kernel_mean, scale_diag=kernel_variance
-        )
-        lp = norm_kernel.log_prob(noised_data)
-    grad_lp = tape.gradient(lp, noised_data)
-    return norm_kernel, lp, grad_lp
-
-
-def prob0T_VP(data, noised_data, beta_schedule: BetaSchedule, t0, t1):
-    """
-    Computes Variance Preserving Kernel eq. 29 (assumes diagonal covariance matrix):
-    p(t,x) = N(0, s(t) - s(0))
-    :param data: tensor of shape (B,d)
-    :param noised_data: tensor of shape (T, B,d)
-    :param beta_schedule: BetaSchedule function used to noise data
-    :param t0: initial time: 0
-    :param t1: final time: 1
-    :param steps: n discretization steps
-    :return: list[distribution_kernel, log_prob, grad_log_prob]
-    """
-    noised_data = tf.convert_to_tensor(noised_data)
-    ds = tf.shape(noised_data)
-    T, B, d = ds[0], ds[1], ds[2]
-    eval_t = tf.linspace(t0, t1, T)
-    s = tf.cast(beta_schedule.intf(eval_t), dtype=noised_data.dtype)
-    s_mu = tf.math.exp(-1 / 2 * s)
-    s_var = 1 - tf.math.exp(-s)
-    kernel_mean = data * s_mu[:, None]  # B x d
-    kernel_mean = tf.repeat(kernel_mean[None, :, :], T, axis=0)  # T x B x d
-    kernel_variance = tf.repeat(
-        tf.repeat(s_var[:, None][..., None], B, axis=1), d, axis=-1
     )  # T x B x d
-    with tf.GradientTape() as tape:
-        tape.watch(noised_data)
-        norm_kernel = MultivariateNormalDiag(
-            loc=kernel_mean, scale_diag=kernel_variance
-        )
-        lp = norm_kernel.log_prob(noised_data)
-    grad_lp = tape.gradient(lp, noised_data)
-    return norm_kernel, lp, grad_lp
+    norm_kernel = MultivariateNormalDiag(loc=kernel_mean, scale_diag=kernel_variance)
+    return norm_kernel, eval_t
 
 
-def prob0T_sub_VP(data, noised_data, beta_schedule: BetaSchedule, t0, t1):
-    """
-    Computes Variance sub-Preserving Kernel eq. 29  (assumes diagonal covariance matrix):
-    p(t,x) = N(0, s(t) - s(0))
-    :param data: tensor of shape (B,d)
-    :param noised_data: tensor of shape (T, B,d)
-    :param beta_schedule: BetaSchedule function used to noise data
-    :param t0: initial time: 0
-    :param t1: final time: 1
-    :param steps: n discretization steps
-    :return:
-    """
-    noised_data = tf.convert_to_tensor(noised_data)
-    ds = tf.shape(noised_data)
-    T, B, d = ds[0], ds[1], ds[2]
-    eval_t = tf.linspace(t0, t1, T)
-    s = tf.cast(beta_schedule.intf(eval_t), dtype=noised_data.dtype)
-    s_mu = tf.math.exp(-1 / 2 * s)
+def VP_kernel(data, t0, t1, steps, beta_schedule):
+    ds = tf.shape(data)
+    T, B, d = steps, ds[0], ds[1]
+    dt = (t1 - t0) / tf.cast(T, tf.float32)
+    eval_t = tf.random.uniform((T,), t0, t1)
+    s = tf.cast(beta_schedule.intf(eval_t + dt), dtype=data.dtype)  # T
+    s_mu = tf.math.exp(-1 / 2 * s)  # T
+    s_var = 1 - tf.math.exp(-s)
+    kernel_mean = tf.repeat(data[None, :, :], T, axis=0)  # T x B x d
+    kernel_mean = kernel_mean * s_mu[:, None]  # T x B x d
+    kernel_variance = tf.repeat(
+        tf.repeat(s_var[:, None], B, axis=1)[..., None], d, axis=-1
+    )  # T x B x d
+    norm_kernel = MultivariateNormalDiag(loc=kernel_mean, scale_diag=kernel_variance)
+    return norm_kernel, eval_t
+
+
+def sub_VP_kernel(data, t0, t1, steps, beta_schedule):
+    ds = tf.shape(data)
+    T, B, d = steps, ds[0], ds[1]
+    dt = (t1 - t0) / tf.cast(T, tf.float32)
+    eval_t = tf.random.uniform((T,), t0, t1)
+    s = tf.cast(beta_schedule.intf(eval_t + dt), dtype=data.dtype)  # T
+    s_mu = tf.math.exp(-1 / 2 * s)  # T
     s_var = (1 - tf.math.exp(-s)) ** 2
-    kernel_mean = data * s_mu  # B x d
-    kernel_mean = tf.repeat(kernel_mean, (T, 1, 1))
-    kernel_variance = tf.repeat(s_var, (1, B, d))
+    kernel_mean = tf.repeat(data[None, :, :], T, axis=0)  # T x B x d
+    kernel_mean = kernel_mean * s_mu[:, None]  # T x B x d
+    kernel_variance = tf.repeat(
+        tf.repeat(s_var[:, None], B, axis=1)[..., None], d, axis=-1
+    )  # T x B x d
+    norm_kernel = MultivariateNormalDiag(loc=kernel_mean, scale_diag=kernel_variance)
+    return norm_kernel, eval_t
+
+
+def log_prob_and_grad(kernel: Distribution, noised_data: tf.Tensor):
     with tf.GradientTape() as tape:
         tape.watch(noised_data)
-        norm_kernel = MultivariateNormalDiag(
-            loc=kernel_mean, scale_diag=kernel_variance
-        )
-        lp = norm_kernel.log_prob(noised_data)
+        lp = kernel.log_prob(noised_data)
     grad_lp = tape.gradient(lp, noised_data)
-    return norm_kernel, lp, grad_lp
+    return lp, grad_lp
 
 
 def sde_noise_conditional_score_matching(score, true_grad, alpha=1.0):
@@ -210,5 +170,5 @@ def sde_noise_conditional_score_matching(score, true_grad, alpha=1.0):
     alpha = tf.convert_to_tensor(alpha, tf.float32)
     tf.debugging.assert_shapes([(score, ("T", "B", "D")), (true_grad, ("T", "B", "D"))])
     diff = tf.reduce_mean((score - true_grad) ** 2, (-1, -2))  # T
-    # w = alpha / tf.reduce_mean(tf.linalg.norm(true_grad, axis=-1) ** 2, -1)  # T
-    return tf.reduce_mean(diff)  # * w)
+    w = tf.stop_gradient(alpha / tf.reduce_mean(tf.linalg.norm(true_grad, axis=-1) ** 2, -1))  # T
+    return tf.reduce_mean(diff * w)

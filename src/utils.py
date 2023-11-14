@@ -4,11 +4,7 @@ from math import pi
 import os
 import matplotlib.pyplot as plt
 import tensorflow as tf
-
-# tf.compat.v1.disable_eager_execution()
 import numpy as np
-from numpy.random import choice
-from sklearn.utils import shuffle as skshuffle
 from tensorflow_probability.python.distributions import (
     MultivariateNormalTriL,
     Mixture,
@@ -18,81 +14,7 @@ from tensorflow_probability.python.distributions import (
     MultivariateNormalDiag,
     NOT_REPARAMETERIZED,
 )
-
 from datetime import datetime
-
-
-def make_spiral_galaxy(
-        n_spirals=5, length=1, angle=np.pi / 2, n_samples=100, noise=0, shuffle=True
-):
-    thetas = np.linspace(0, np.pi * 2, n_spirals + 1)
-    thetas = thetas[:-1]
-    radius = np.linspace(
-        np.zeros(len(thetas)) + 0.1, np.ones(len(thetas)) * length + 0.1, n_samples
-    )
-    angles = np.linspace(thetas, thetas + angle, n_samples)
-    if noise:
-        angles += (
-                np.random.normal(size=angles.shape)
-                * noise
-                * np.linspace(1.5, 0.1, n_samples)[:, None]
-        )
-    x0 = np.cos(angles) * radius
-    x1 = np.sin(angles) * radius
-    x0 = x0.T.reshape(-1, 1)
-    x1 = x1.T.reshape(-1, 1)
-    xy = np.concatenate([x0, x1], -1)
-    y = np.repeat(np.arange(n_spirals), n_samples)
-    if shuffle:
-        xy, y = skshuffle(xy, y)
-    return xy, y
-
-
-def make_circle_gaussian(modes=5, sigma=1, radius=2, n_samples=100, shuffle=True):
-    thetas = np.linspace(0, np.pi * 2, modes + 1)
-    thetas = thetas[:-1]
-    x0 = np.cos(thetas) * radius
-    x1 = np.sin(thetas) * radius
-    x0 = x0.T.reshape(-1, 1)
-    x1 = x1.T.reshape(-1, 1)
-    xy = np.concatenate([x0, x1], -1).astype(np.float32)
-    components = [MultivariateNormalDiag(mu, [sigma, sigma]) for mu in xy]
-    probs = tf.ones(modes) / modes
-    cat = Categorical(probs=probs)
-    mix = Mixture(cat=cat, components=components)
-    samples = (
-            np.random.normal(size=(modes, n_samples, 2)) * sigma + xy[:, None, :]
-    )
-    samples = samples.reshape(-1, 2)
-    y = np.repeat(np.arange(modes), n_samples)
-    if shuffle:
-        xy, y = skshuffle(samples, y)
-    return xy, y, mix
-
-
-def make_cross_shaped_distribution(n_samples):
-    components = [
-        MultivariateNormalTriL(
-            loc=[0, 2], scale_tril=tf.linalg.cholesky([[0.15 ** 2, 0], [0, 1]])
-        ),
-        MultivariateNormalTriL(
-            loc=[-2, 0], scale_tril=tf.linalg.cholesky([[1, 0], [0, 0.15 ** 2]])
-        ),
-        MultivariateNormalTriL(
-            loc=[2, 0], scale_tril=tf.linalg.cholesky([[1, 0], [0, 0.15 ** 2]])
-        ),
-        MultivariateNormalTriL(
-            loc=[0, -2], scale_tril=tf.linalg.cholesky([[0.15 ** 2, 0], [0, 1]])
-        ),
-    ]
-    x = np.empty((n_samples * 4, 2))
-    for i, c in enumerate(components):
-        x[n_samples * i: n_samples * (i + 1), :] = c.sample(n_samples).numpy()
-    y = np.repeat(np.arange(4), n_samples)
-    mix = Mixture(
-        cat=Categorical(probs=[1 / 4, 1 / 4, 1 / 4, 1 / 4]), components=components
-    )
-    return x, y, mix
 
 
 def save_output_callback(
@@ -261,22 +183,24 @@ def forward_dx(f, g, dt=1e-4, deterministic=False):
     """
 
     # actual time: t*dt
-    def inner(t: int, x):
+    def inner(t: float, x):
         """
         Computes the forward SDE
         :param t: current time step
         :param x: current state: (B, d)
         :return:  list[ x':(B, d), f(t, x):(B, d), g(t, X):(B, 1) or (B, d) or (B, d, d)]
         """
+        # t = tf.cast(t, x.dtype)
         d = tf.shape(x)[-1]
-        ftx = f([tf.cast(t, x.dtype) * dt, x])
+        ftx = f([t, x])
         if deterministic:
-            return ftx
+            return t + dt, ftx * dt, ftx, tf.zeros_like(x)
         else:
-            gtx = g([tf.cast(t, x.dtype) * dt, x])
+            gtx = g([t, x])
             gtx_shape = tf.shape(gtx)
             if gtx_shape.shape[0] == 3:
                 return (
+                    t + dt,
                     ftx * dt + tf.einsum("bio,bo->bi", gtx, dW(dt, x.shape)),
                     ftx,
                     gtx,
@@ -289,8 +213,8 @@ def forward_dx(f, g, dt=1e-4, deterministic=False):
                     True,
                     f"Shape of variance matrix {gtx_shape[1]} is not equal to input data dimension {d}"
                 )
-                updt = ftx * dt + gtx * dW(dt, x.shape)
-                return updt, ftx, gtx
+                updt = ftx * dt + gtx * dW(dt, tf.shape(x))
+                return t + dt, updt, ftx, gtx
             else:
                 raise RuntimeError(
                     f"Shape of covariance matrix is {gtx_shape} and is not supported,"
@@ -313,14 +237,14 @@ def backward_dx(f, g, grad_log_p, dt: float = 1e-4, deterministic: bool = False)
     :return: list[ x':(B, d), f(t, x):(B, d), g(t, X):(B, 1) or (B, d) or (B, d, d)]
     """
 
-    # actual time: t*dt
-    def inner(t, x):
+    def inner(t: float, x):
+        # t = tf.cast(t, x.dtype)
         x = tf.convert_to_tensor(x, tf.float32)
         d = tf.shape(x)[-1]
-        ftx = f([t * dt, x])
+        ftx = f([t, x])
         with tf.GradientTape() as tape:
             tape.watch(x)
-            gtx = g([t * dt, x])
+            gtx = g([t, x])
             gtx_shape = tf.shape(gtx)
             if gtx_shape.shape[0] == 3:
                 ss = tf.einsum("bio,bko->bik", gtx, gtx)
@@ -347,15 +271,15 @@ def backward_dx(f, g, grad_log_p, dt: float = 1e-4, deterministic: bool = False)
             alpha = 1.0
 
         if gtx_shape.shape[0] == 3:
-            rev_var = grad_ss + tf.einsum("bio,bo->bi", ss, grad_log_p([t * dt, x]))
+            rev_var = grad_ss + tf.einsum("bio,bo->bi", ss, grad_log_p([t, x]))
         elif gtx_shape.shape[0] in {1, 2}:
-            rev_var = grad_ss + ss * grad_log_p([tf.constant(t, tf.float32) * dt, x])
+            rev_var = grad_ss + ss * grad_log_p([t, x])
         else:
             raise RuntimeError
 
         dx = (ftx - alpha * rev_var) * dt
         if deterministic:
-            return dx, ftx, gtx
+            return t - dt, dx, ftx, gtx
         else:
             if gtx_shape.shape[0] == 3:
                 go = tf.einsum("bio,bo->bi", gtx, dW(dt, x.shape))
@@ -366,46 +290,29 @@ def backward_dx(f, g, grad_log_p, dt: float = 1e-4, deterministic: bool = False)
                     raise RuntimeError
             else:
                 raise RuntimeError
-            return dx + go, ftx, gtx
+            return t - dt, dx + go, ftx, gtx
 
     return inner
 
 
-def cond(max_steps=1000):
+def cond(max_t=1, min_t=0.):
     def inner(t, *args, **kwargs):
-        return tf.less(t, max_steps)
+        return tf.logical_and(tf.greater(t, min_t), tf.less(t, max_t))
 
     return inner
 
 
 def body(f):
     def b_(
-            t, x, ta: tf.TensorArray, taf: tf.TensorArray = None, tag: tf.TensorArray = None
+            t, k, x, ta: tf.TensorArray, taf: tf.TensorArray = None, tag: tf.TensorArray = None
     ):
-        fdx_, ftx, gtx = f(t, x)
+        t, fdx_, ftx, gtx = f(t, x)
         x1 = x + fdx_
         if taf is not None and tag is not None:
-            return t + 1, x1, ta.write(t, x1), taf.write(t, ftx), tag.write(t, gtx)
-        return t + 1, x1, ta.write(t, x1)
+            return t, k + 1, x1, ta.write(k, x1), taf.write(k, ftx), tag.write(k, gtx),
+        return t, k + 1, x1, ta.write(k, x1)
 
     return b_
-
-
-def mixed_mode_colocation(n=0.01, v=0.0072168, a=-0.3872, b=-0.3251, c=1.17):
-    def f(inputs):
-        t, i = inputs
-        x, y, z = i[:, :1], i[:, 1:2], i[:, -1:]
-        dx = 1 / n * (y - x ** 2 - x ** 3)
-        dy = z - x
-        dz = -v - a * x - b * y - c * z
-        return tf.concat([dx, dy, dz], -1)
-
-    def g(inputs):
-        t, i = inputs
-        I = tf.eye(3)
-        return tf.tile(I[None, :, :], (i.shape[0], 1, 1))
-
-    return f, g
 
 
 def sigmoid(c, k):
@@ -566,12 +473,12 @@ def get_schedule(name):
                 f"Schedule name {name} is not implemented, only ['linear', 'sigmoid', 'discrete_geometric',"
                 f" 'continuous_geometric'] are supported"
             )
-    elif isinstance(name, BetaSchedule):
+    elif issubclass(type(name), BetaSchedule):
         return name
     else:
         raise NotImplementedError(
             f"Type {type(name)} is not supported, only name in ['linear', 'sigmoid', 'discrete_geometric',"
-            f" 'continuous_geometric'] or BetaSchedule instance"
+            f" 'continuous_geometric'] or subclass of src.utils.BetaSchedule"
         )
 
 

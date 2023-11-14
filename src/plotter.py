@@ -6,6 +6,17 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 import tensorflow as tf
 import numpy as np
+from numpy.random import choice
+from sklearn.utils import shuffle as skshuffle
+from tensorflow_probability.python.distributions import (
+    MultivariateNormalTriL,
+    Mixture,
+    Categorical,
+    Logistic,
+    Distribution,
+    MultivariateNormalDiag,
+    NOT_REPARAMETERIZED,
+)
 
 plt.rc("text", usetex=True)
 plt.rc("text.latex", preamble=r"\usepackage{amsmath} \usepackage{amssymb}")
@@ -20,24 +31,118 @@ def make_base_points(x_lim=(-5, 5), y_lim=(-5, 5), num=200):
     return xx, yy, xy
 
 
+def make_spiral_galaxy(
+        n_spirals=5, length=1, angle=np.pi / 2, n_samples=100, noise=0, shuffle=True
+):
+    thetas = np.linspace(0, np.pi * 2, n_spirals + 1)
+    thetas = thetas[:-1]
+    radius = np.linspace(
+        np.zeros(len(thetas)) + 0.1, np.ones(len(thetas)) * length + 0.1, n_samples
+    )
+    angles = np.linspace(thetas, thetas + angle, n_samples)
+    if noise:
+        angles += (
+                np.random.normal(size=angles.shape)
+                * noise
+                * np.linspace(1.5, 0.1, n_samples)[:, None]
+        )
+    x0 = np.cos(angles) * radius
+    x1 = np.sin(angles) * radius
+    x0 = x0.T.reshape(-1, 1)
+    x1 = x1.T.reshape(-1, 1)
+    xy = np.concatenate([x0, x1], -1)
+    y = np.repeat(np.arange(n_spirals), n_samples)
+    if shuffle:
+        xy, y = skshuffle(xy, y)
+    return xy, y
+
+
+def make_circle_gaussian(modes=5, sigma=1, radius=2, n_samples=100, shuffle=True):
+    thetas = np.linspace(0, np.pi * 2, modes + 1)
+    thetas = thetas[:-1]
+    x0 = np.cos(thetas) * radius
+    x1 = np.sin(thetas) * radius
+    x0 = x0.T.reshape(-1, 1)
+    x1 = x1.T.reshape(-1, 1)
+    xy = np.concatenate([x0, x1], -1).astype(np.float32)
+    components = [MultivariateNormalDiag(mu, [sigma, sigma]) for mu in xy]
+    probs = tf.ones(modes) / modes
+    cat = Categorical(probs=probs)
+    mix = Mixture(cat=cat, components=components)
+    samples = (
+            np.random.normal(size=(modes, n_samples, 2)) * sigma + xy[:, None, :]
+    )
+    samples = samples.reshape(-1, 2)
+    y = np.repeat(np.arange(modes), n_samples)
+    if shuffle:
+        xy, y = skshuffle(samples, y)
+    return xy, y, mix
+
+
+def make_cross_shaped_distribution(n_samples):
+    components = [
+        MultivariateNormalTriL(
+            loc=[0, 2], scale_tril=tf.linalg.cholesky([[0.15 ** 2, 0], [0, 1]])
+        ),
+        MultivariateNormalTriL(
+            loc=[-2, 0], scale_tril=tf.linalg.cholesky([[1, 0], [0, 0.15 ** 2]])
+        ),
+        MultivariateNormalTriL(
+            loc=[2, 0], scale_tril=tf.linalg.cholesky([[1, 0], [0, 0.15 ** 2]])
+        ),
+        MultivariateNormalTriL(
+            loc=[0, -2], scale_tril=tf.linalg.cholesky([[0.15 ** 2, 0], [0, 1]])
+        ),
+    ]
+    x = np.empty((n_samples * 4, 2))
+    for i, c in enumerate(components):
+        x[n_samples * i: n_samples * (i + 1), :] = c.sample(n_samples).numpy()
+    y = np.repeat(np.arange(4), n_samples)
+    mix = Mixture(
+        cat=Categorical(probs=[1 / 4, 1 / 4, 1 / 4, 1 / 4]), components=components
+    )
+    return x, y, mix
+
+
+def mixed_mode_colocation(n=0.01, v=0.0072168, a=-0.3872, b=-0.3251, c=1.17):
+    """
+    Defines drift and diffusion for mixed mode colocation process
+    """
+
+    def f(inputs):
+        t, i = inputs
+        x, y, z = i[:, :1], i[:, 1:2], i[:, -1:]
+        dx = 1 / n * (y - x ** 2 - x ** 3)
+        dy = z - x
+        dz = -v - a * x - b * y - c * z
+        return tf.concat([dx, dy, dz], -1)
+
+    def g(inputs):
+        t, i = inputs
+        I = tf.eye(3)
+        return tf.tile(I[None, :, :], (i.shape[0], 1, 1))
+
+    return f, g
+
+
 def make_grad_plot(
-    model=None,
-    x_lim=(-5, 5),
-    y_lim=(-5, 5),
-    num=50,
-    reduce=5,
-    ax=None,
-    fig=None,
-    iter=None,
-    grad=None,
-    e=None,
-    xy=None,
-    fontsize=20,
-    quiver=True,
-    contour=True,
-    title=True,
-    alpha=1,
-    cmap="viridis",
+        model=None,
+        x_lim=(-5, 5),
+        y_lim=(-5, 5),
+        num=50,
+        reduce=5,
+        ax=None,
+        fig=None,
+        iter=None,
+        grad=None,
+        e=None,
+        xy=None,
+        fontsize=20,
+        quiver=True,
+        contour=True,
+        title=True,
+        alpha=1,
+        cmap="viridis",
 ):
     assert model is not None or (grad is not None and xy is not None)
     if model is not None:
@@ -61,7 +166,7 @@ def make_grad_plot(
         if isinstance(grad, tf.Tensor):
             grad = grad.numpy()
         num = int(np.sqrt(xy.shape[0]))
-        assert num**2 == xy.shape[0]
+        assert num ** 2 == xy.shape[0]
         xx, yy = np.split(xy, 2, -1)
         xx, yy = np.reshape(xx, (num, num)), np.reshape(yy, (num, num))
     if e is not None:
@@ -114,14 +219,14 @@ def make_grad_plot(
 
 
 def make_distribution_grad_plot(
-    distr,
-    x_lim=(-5, 5),
-    y_lim=(-5, 5),
-    num=200,
-    reduce=10,
-    ax=None,
-    fig=None,
-    fontsize=20,
+        distr,
+        x_lim=(-5, 5),
+        y_lim=(-5, 5),
+        num=200,
+        reduce=10,
+        ax=None,
+        fig=None,
+        fontsize=20,
 ):
     assert issubclass(type(distr), Distribution)
     xx, yy, xy = make_base_points(x_lim, y_lim, num)
@@ -158,14 +263,14 @@ def make_distribution_grad_plot(
 
 
 def make_training_animation(
-    save_path,
-    dpi=150,
-    fps=60,
-    max_frames=None,
-    fig=None,
-    ax=None,
-    name="default",
-    **kwargs_grad_plot,
+        save_path,
+        dpi=150,
+        fps=60,
+        max_frames=None,
+        fig=None,
+        ax=None,
+        name="default",
+        **kwargs_grad_plot,
 ):
     save_name = name
     path, dirs, files = next(os.walk(save_path))
@@ -228,18 +333,18 @@ def make_training_animation(
 
 
 def plot_trajectories2D(
-    ebm=None,
-    trajectories=None,
-    fig=None,
-    ax=None,
-    marg_x=None,
-    marg_y=None,
-    x_lim=(-10, 10),
-    save_path=None,
-    name="default_trajectory",
-    dpi=90,
-    distr=None,
-    **kwargs_grad_plot,
+        ebm=None,
+        trajectories=None,
+        fig=None,
+        ax=None,
+        marg_x=None,
+        marg_y=None,
+        x_lim=(-10, 10),
+        save_path=None,
+        name="default_trajectory",
+        dpi=90,
+        distr=None,
+        **kwargs_grad_plot,
 ):
     assert ebm is not None or trajectories is not None
     if trajectories is None:
@@ -316,16 +421,16 @@ def plot_trajectories2D(
 
 
 def plot_trajectories3D(
-    ebm=None,
-    trajectories=None,
-    energy=None,
-    xy=None,
-    fig=None,
-    x_lim=(-10, 10),
-    save_path=None,
-    name="default_trajectory",
-    dpi=90,
-    distr=None,
+        ebm=None,
+        trajectories=None,
+        energy=None,
+        xy=None,
+        fig=None,
+        x_lim=(-10, 10),
+        save_path=None,
+        name="default_trajectory",
+        dpi=90,
+        distr=None,
 ):
     xx, yy = None
     if energy is not None and xy is not None:
@@ -416,3 +521,23 @@ def plot_trajectories3D(
     if save_path is not None:
         anim.save(os.path.join(save_path, name + "_animation.gif"), fps=60, dpi=dpi)
     return fig, anim
+
+
+def make_temporal_gradient(model):
+    steps = 30
+    n_points = 50
+    xx, yy, xy = make_base_points((-2, 2), (-2, 2), n_points)
+    t = tf.linspace(0, 1, steps)
+    tt = tf.repeat(t[:, None], n_points ** 2, axis=1)
+    xxyy = tf.repeat(xy[None, :], steps, axis=0)
+    rtt = tf.reshape(tt, (-1, 1))
+    rxxyy = tf.reshape(xxyy, (-1, 2))
+    grad = model.grad_energy([rtt, rxxyy])
+    grad = grad.numpy().reshape(steps, n_points, n_points, 2)
+
+    fig, ax = plt.subplots(1)
+    for i in range(steps):
+        ax.clear()
+        ax.set_title(f"{i}")
+        ax.quiver(xx, yy, grad[i, :, :, 0], grad[i, :, :, 1], color="blue")
+        plt.pause(0.001)

@@ -6,9 +6,7 @@ from src.losses import (
     score_loss,
     noise_conditional_score_matching_loss,
     sde_noise_conditional_score_matching,
-    prob0T_VE,
-    prob0T_VP,
-    prob0T_sub_VP,
+    sub_VP_kernel, VP_kernel, VE_kernel, log_prob_and_grad
 )
 from src.utils import (
     corrupt_samples,
@@ -44,14 +42,14 @@ class SlicedScoreMatching(Model):
     """
 
     def __init__(
-        self,
-        hidden_layers: Tuple[int, ...] = (100, 50),
-        output_dim: int = 2,
-        activation: str = "relu",
-        vr=False,
-        noise_type="gaussian",
-        anneal=0.0,
-        **kwargs
+            self,
+            hidden_layers: Tuple[int, ...] = (100, 50),
+            output_dim: int = 2,
+            activation: str = "relu",
+            vr=False,
+            noise_type="gaussian",
+            anneal=0.0,
+            **kwargs
     ):
         super().__init__(**kwargs)
         self.loss_tracker = tf.keras.metrics.Mean(name="score")
@@ -92,12 +90,12 @@ class SlicedScoreMatching(Model):
         return {"Score": self.loss_tracker.result()}
 
     def langevin_dynamics(
-        self,
-        initial_points=None,
-        steps=500,
-        x_lim=(-6, 6),
-        n_samples=100,
-        trajectories=False,
+            self,
+            initial_points=None,
+            steps=500,
+            x_lim=(-6, 6),
+            n_samples=100,
+            trajectories=False,
     ):
         try:
             in_dim = self.f.layers[0].input_shape[-1]
@@ -124,9 +122,9 @@ class SlicedScoreMatching(Model):
         for t in range(1, steps):
             a = alpha(t)
             x = (
-                x
-                + 0.5 * a * self(x)
-                + tf.math.sqrt(a) * tf.random.normal(shape=(x.shape[0], in_dim))
+                    x
+                    + 0.5 * a * self(x)
+                    + tf.math.sqrt(a) * tf.random.normal(shape=(x.shape[0], in_dim))
             )
             if trajectories:
                 traj[t, :, :] = x.numpy()
@@ -136,16 +134,16 @@ class SlicedScoreMatching(Model):
         return x
 
     def annealed_langevin_dynamics(
-        self,
-        initial_points=None,
-        steps=500,
-        n_samples=100,
-        x_lim=(-6.0, 6.0),
-        sigma_high=1.0,
-        sigma_low=0.01,
-        levels=10,
-        e=0.0001,
-        trajectories=False,
+            self,
+            initial_points=None,
+            steps=500,
+            n_samples=100,
+            x_lim=(-6.0, 6.0),
+            sigma_high=1.0,
+            sigma_low=0.01,
+            levels=10,
+            e=0.0001,
+            trajectories=False,
     ):
         try:
             in_dim = self.f.layers[0].input_shape[1:]
@@ -175,9 +173,9 @@ class SlicedScoreMatching(Model):
             a = e * alphas[l] / alphas[-1]
             for t in range(0, steps):
                 x = (
-                    x
-                    + 0.5 * a * self(x)
-                    + tf.math.sqrt(a) * tf.random.normal(shape=(x.shape[0], *in_dim))
+                        x
+                        + 0.5 * a * self(x)
+                        + tf.math.sqrt(a) * tf.random.normal(shape=(x.shape[0], *in_dim))
                 )
                 if trajectories:
                     traj[cntr, :, :] = x.numpy()
@@ -208,13 +206,13 @@ class EBMSlicedScoreMatching(SlicedScoreMatching):
     """
 
     def __init__(
-        self,
-        hidden_layers: Tuple[int, ...] = (100, 50),
-        activation: str = "relu",
-        vr=False,
-        noise_type="gaussian",
-        anneal=0.0,
-        **kwargs
+            self,
+            hidden_layers: Tuple[int, ...] = (100, 50),
+            activation: str = "relu",
+            vr=False,
+            noise_type="gaussian",
+            anneal=0.0,
+            **kwargs
     ):
         super().__init__(
             hidden_layers=hidden_layers,
@@ -272,12 +270,12 @@ class NoiseConditionalScoreModel(Model):
     """
 
     def __init__(
-        self,
-        sigma=0.5,
-        hidden_layers: Tuple[int, ...] = (100, 50),
-        output_dim: int = 2,
-        activation: str = "relu",
-        **kwargs
+            self,
+            sigma=0.5,
+            hidden_layers: Tuple[int, ...] = (100, 50),
+            output_dim: int = 2,
+            activation: str = "relu",
+            **kwargs
     ):
         super().__init__(**kwargs)
         self.sigma = sigma
@@ -332,12 +330,12 @@ class NoiseConditionalScoreModel(Model):
         return {"Score": self.loss_tracker.result()}
 
     def langevin_dynamics(
-        self,
-        initial_points=None,
-        steps=500,
-        x_lim=(-6, 6),
-        n_samples=100,
-        trajectories=False,
+            self,
+            initial_points=None,
+            steps=500,
+            x_lim=(-6, 6),
+            n_samples=100,
+            trajectories=False,
     ):
         try:
             in_dim = self.f.layers[0].input_shape[-1]
@@ -364,9 +362,9 @@ class NoiseConditionalScoreModel(Model):
         for t in range(1, steps):
             a = alpha(t)
             x = (
-                x
-                + 0.5 * a * self(x)
-                + tf.math.sqrt(a) * tf.random.normal(shape=(x.shape[0], in_dim))
+                    x
+                    + 0.5 * a * self(x)
+                    + tf.math.sqrt(a) * tf.random.normal(shape=(x.shape[0], in_dim))
             )
             if trajectories:
                 traj[t, :, :] = x.numpy()
@@ -376,16 +374,16 @@ class NoiseConditionalScoreModel(Model):
         return x
 
     def annealed_langevin_dynamics(
-        self,
-        initial_points=None,
-        steps=500,
-        n_samples=100,
-        x_lim=(-6.0, 6.0),
-        sigma_high=1.0,
-        sigma_low=0.01,
-        levels=10,
-        e=0.0001,
-        trajectories=False,
+            self,
+            initial_points=None,
+            steps=500,
+            n_samples=100,
+            x_lim=(-6.0, 6.0),
+            sigma_high=1.0,
+            sigma_low=0.01,
+            levels=10,
+            e=0.0001,
+            trajectories=False,
     ):
         try:
             in_dim = self.f.layers[0].input_shape[1:]
@@ -415,9 +413,9 @@ class NoiseConditionalScoreModel(Model):
             a = e * alphas[l] / alphas[-1]
             for t in range(0, steps):
                 x = (
-                    x
-                    + 0.5 * a * self(x)
-                    + tf.math.sqrt(a) * tf.random.normal(shape=(x.shape[0], *in_dim))
+                        x
+                        + 0.5 * a * self(x)
+                        + tf.math.sqrt(a) * tf.random.normal(shape=(x.shape[0], *in_dim))
                 )
                 if trajectories:
                     traj[cntr, :, :] = x.numpy()
@@ -440,11 +438,11 @@ class EBMNoiseConditionalScoreModel(NoiseConditionalScoreModel):
     """
 
     def __init__(
-        self,
-        sigmas: Union[Tuple, tf.Tensor] = tf.linspace(0.001, 1, 10)[::-1],
-        hidden_layers: Tuple[int, ...] = (100, 50),
-        activation: str = "relu",
-        **kwargs
+            self,
+            sigmas: Union[Tuple, tf.Tensor] = tf.linspace(0.001, 1, 10)[::-1],
+            hidden_layers: Tuple[int, ...] = (100, 50),
+            activation: str = "relu",
+            **kwargs
     ):
         super().__init__(
             hidden_layers=hidden_layers, activation=activation, sigma=sigmas, **kwargs
@@ -479,10 +477,10 @@ class EBMNoiseConditionalScoreModel(NoiseConditionalScoreModel):
 
 class EBMDenoisingFlow(Model):
     def __init__(
-        self, train_cnfg: dict = None, schedule: Union[str, BetaSchedule] = "linear"
+            self, train_cnfg: dict = None, schedule: Union[str, BetaSchedule] = "linear"
     ):
         super().__init__()
-        base_train_cnfg = dict(t0=0, t1=1, steps=1000, deterministic=False)
+        base_train_cnfg = dict(t0=0.0, t1=1.0, steps=1000, deterministic=False)
         self.train_cnfg = train_cnfg
         if self.train_cnfg is None:
             self.train_cnfg = base_train_cnfg
@@ -531,21 +529,21 @@ class EBMDenoisingFlow(Model):
     def energy(self, inputs):
         return self.e(inputs)
 
-    def call(self, inputs, training=False, forward=True, mask=None):
+    def call(self, inputs, training=False, forward=True, mask=None, **kwargs):
         ix = inputs
         if forward:
-            return self.forward_sde(ix, **self.train_cnfg)
+            return self.forward_sde(ix, **self.train_cnfg, **kwargs)
         else:
-            return self.backward_sde(ix, **self.train_cnfg)
+            return self.backward_sde(ix, **self.train_cnfg, **kwargs)
 
     # @tf.function
     def forward_sde(
-        self,
-        x_init=None,
-        steps: int = 1000,
-        t0: float = 0.0,
-        t1: float = 1.0,
-        deterministic=False,
+            self,
+            x_init,
+            steps: int = 1000,
+            t0: float = 0.0,
+            t1: float = 1.0,
+            deterministic=False,
     ):
         x_shape = x_init.shape
         B = x_shape[0]
@@ -556,22 +554,24 @@ class EBMDenoisingFlow(Model):
         tag = tf.TensorArray(tf.float32, steps, element_shape=(B, d))
         fdx = forward_dx(self.f, self.g, dt, deterministic)
         bd = body(fdx)
-        stop = cond(max_steps=steps)
-        t_final, x_final, history, history_f, history_g = tf.while_loop(
-            stop, bd, (t0, x_init, ta, taf, tag)
+        stop = cond(max_t=t1 - dt, min_t=t0 - dt)
+        k_final, t_final, x_final, history, history_f, history_g = tf.while_loop(
+            stop, bd, (t0, 0, x_init, ta, taf, tag)
         )
         return history.stack(), history_f.stack(), history_g.stack()
 
     # @tf.function
     def backward_sde(
-        self,
-        x_init=None,
-        steps: int = 1000,
-        t0: float = 0.0,
-        t1: float = 1.0,
-        deterministic=False,
+            self,
+            x_init=None,
+            steps: int = 1000,
+            t0: float = 0.0,
+            t1: float = 1.0,
+            deterministic=False,
     ):
-        x_shape = tf.shape(x_init)
+        if x_init is None:
+            x_init = tf.random.normal(shape=(500, self.f.output_shape[-1]))
+        x_shape = x_init.shape
         B = x_shape[0]
         d = x_shape[1]
         dt = (t1 - t0) / steps
@@ -580,9 +580,9 @@ class EBMDenoisingFlow(Model):
         tag = tf.TensorArray(tf.float32, steps, element_shape=(B, d))
         bdx = backward_dx(self.f, self.g, self.grad_energy, dt, deterministic)
         bd = body(bdx)
-        stop = cond(max_steps=steps)
-        t_final, x_final, history, history_f, history_g = tf.while_loop(
-            stop, bd, (t0, x_init, ta, taf, tag)
+        stop = cond(min_t=t0 + dt, max_t=t1 + dt)
+        k_final, t_final, x_final, history, history_f, history_g = tf.while_loop(
+            stop, bd, (t1, 0, x_init, ta, taf, tag)
         )
         return history.stack(), history_f.stack(), history_g.stack()
 
@@ -608,8 +608,8 @@ class SDE_VE(EBMDenoisingFlow):
         x = input_shape
         i1, i2 = tf.keras.Input(batch_input_shape=(1,)), tf.keras.Input((*x[1:],))
         lambda_var = Lambda(
-            lambda i: tf.math.sqrt(self.schedule.df(i[0]))
-            * tf.ones_like(i[1], dtype=i[1].dtype)
+            lambda i: tf.math.sqrt(self.schedule.df(i[0])) *
+                      tf.ones_like(i[1], dtype=i[1].dtype)
         )
         o = lambda_var([i1, i2])
         return Model([i1, i2], o)
@@ -634,19 +634,21 @@ class SDE_VE(EBMDenoisingFlow):
             self.train_cnfg.get("t1"),
             self.train_cnfg.get("steps"),
         )
-        fsde, f_hist, g_hist = self.forward_sde(data, **self.train_cnfg)
-        fsde_shape = tf.shape(fsde)
-        T, B, d = fsde_shape[0], fsde_shape[1], fsde_shape[2]
-        times = tf.linspace(t0, t1, steps)
-        e_t = tf.tile(times[:, None, None], (1, B, 1))  # copy t array B times
-        e_t = tf.reshape(e_t, (-1, 1))  # T*B x d
-        resh_fsde = tf.reshape(fsde, (-1, d))  # T*B x d
+        ds = tf.shape(data)
+        T, B, d = steps, ds[0], ds[1]
+        # generate noised data from perturbation kernel:
+        # you can do this because the sde has closed form solution for transition kernel, and the score must learn the
+        # grad of the closed form transition kernel, this way it's much faster to train the network since you don't
+        # need to evaluate the forward sde
+        noise_kernel, eval_t = VE_kernel(data, t0, t1, steps, self.schedule)
+        noised_data = tf.squeeze(noise_kernel.sample(1), 0)  # T x B x d
+        resh_noised_data = tf.reshape(noised_data, (-1, d))  # T*B x d
+        t = tf.repeat(eval_t[:, None, None], B, axis=1)  # each batch must have same time
+        t = tf.reshape(t, (-1, 1))  # T*B x d
         with tf.GradientTape() as tape:
-            score = self.grad_energy([e_t, resh_fsde])  # TxB x d
+            score = self.grad_energy([t, resh_noised_data])  # TxB x d
             score = tf.reshape(score, (T, B, d))
-            norm_kernel, lp, grad_lp = prob0T_VE(
-                data, fsde, self.schedule, t0, t1
-            )  # T x B x d
+            lp, grad_lp = log_prob_and_grad(noise_kernel, noised_data)  # T x B x d
             loss = sde_noise_conditional_score_matching(score, grad_lp)
         grads = tape.gradient(loss, self.e.trainable_variables)
         self.optimizer.apply_gradients(zip(grads, self.e.trainable_variables))
@@ -671,7 +673,7 @@ class SDE_VP(EBMDenoisingFlow):
         i1, i2 = tf.keras.Input(batch_input_shape=(1,)), tf.keras.Input((*x[1:],))
         lambda_var = Lambda(
             lambda i: tf.math.sqrt(self.schedule.df(i[0]))
-            * tf.ones_like(i[1], dtype=i[1].dtype)
+                      * tf.ones_like(i[1], dtype=i[1].dtype)
         )
         o = lambda_var([i1, i2])
         return Model([i1, i2], o)
@@ -696,23 +698,22 @@ class SDE_VP(EBMDenoisingFlow):
             self.train_cnfg.get("t1"),
             self.train_cnfg.get("steps"),
         )
-        fsde, f_hist, g_hist = self.forward_sde(data, **self.train_cnfg)
-        fsde_shape = tf.shape(fsde)
-        T, B, d = fsde_shape[0], fsde_shape[1], fsde_shape[2]
-        times = tf.linspace(t0, t1, steps)
-        e_t = tf.tile(times[:, None, None], (1, B, 1))  # copy t array B times
-        e_t = tf.reshape(e_t, (-1, 1))  # T*B x d
-        resh_fsde = tf.reshape(fsde, (-1, d))  # T*B x d
+        ds = tf.shape(data)
+        T, B, d = steps, ds[0], ds[1]
+        # generate noised data from perturbation kernel:
+        # you can do this because the sde has closed form solution for transition kernel, and the score must learn the
+        # grad of the closed form transition kernel, this way it's much faster to train the network since you don't
+        # need to evaluate the forward sde
+        noise_kernel, eval_t = VP_kernel(data, t0, t1, steps, self.schedule)
+        noised_data = tf.squeeze(noise_kernel.sample(1), 0)  # T x B x d
+        resh_noised_data = tf.reshape(noised_data, (-1, d))  # T*B x d
+        t = tf.repeat(eval_t[:, None, None], B, axis=1)  # each batch must have same time
+        t = tf.reshape(t, (-1, 1))  # T*B x d
         with tf.GradientTape() as tape:
-            score = self.grad_energy([e_t, resh_fsde])  # TxB x d
+            score = self.grad_energy([t, resh_noised_data])  # TxB x d
             score = tf.reshape(score, (T, B, d))
-            norm_kernel, lp, grad_lp = prob0T_VE(
-                data, fsde, self.schedule, t0, t1
-            )  # T x B x d
+            lp, grad_lp = log_prob_and_grad(noise_kernel, noised_data)  # T x B x d
             loss = sde_noise_conditional_score_matching(score, grad_lp)
-            print(lp[0])
-            print(score[0])
-            print(grad_lp[0])
         grads = tape.gradient(loss, self.e.trainable_variables)
         self.optimizer.apply_gradients(zip(grads, self.e.trainable_variables))
         return {"Loss": loss}
@@ -738,7 +739,7 @@ class SDE_SubVP(EBMDenoisingFlow):
             lambda i: tf.math.sqrt(
                 self.schedule.f(i[0]) * (1 - tf.math.exp(-2 * self.schedule.intf(i[0])))
             )
-            * tf.ones_like(i[1], dtype=i[1].dtype)
+                      * tf.ones_like(i[1], dtype=i[1].dtype)
         )
         o = lambda_var([i1, i2])
         return Model([i1, i2], o)
@@ -763,36 +764,22 @@ class SDE_SubVP(EBMDenoisingFlow):
             self.train_cnfg.get("t1"),
             self.train_cnfg.get("steps"),
         )
-        fsde, f_hist, g_hist = self.forward_sde(data, **self.train_cnfg)
-        fsde_shape = tf.shape(fsde)
-        T, B, d = fsde_shape[0], fsde_shape[1], fsde_shape[2]
-        times = tf.linspace(t0, t1, steps)
-        e_t = tf.tile(times[:, None, None], (1, B, 1))  # copy t array B times
-        e_t = tf.reshape(e_t, (-1, 1))  # T*B x d
-        resh_fsde = tf.reshape(fsde, (-1, d))  # T*B x d
+        ds = tf.shape(data)
+        T, B, d = steps, ds[0], ds[1]
+        # generate noised data from perturbation kernel:
+        # you can do this because the sde has closed form solution for transition kernel, and the score must learn the
+        # grad of the closed form transition kernel, this way it's much faster to train the network since you don't
+        # need to evaluate the forward sde
+        noise_kernel, eval_t = sub_VP_kernel(data, t0, t1, steps, self.schedule)
+        noised_data = tf.squeeze(noise_kernel.sample(1), 0)  # T x B x d
+        resh_noised_data = tf.reshape(noised_data, (-1, d))  # T*B x d
+        t = tf.repeat(eval_t[:, None, None], B, axis=1)  # each batch must have same time
+        t = tf.reshape(t, (-1, 1))  # T*B x d
         with tf.GradientTape() as tape:
-            score = self.grad_energy([e_t, resh_fsde])  # TxB x d
+            score = self.grad_energy([t, resh_noised_data])  # TxB x d
             score = tf.reshape(score, (T, B, d))
-            norm_kernel, lp, grad_lp = prob0T_VE(
-                data, fsde, self.schedule, t0, t1
-            )  # T x B x d
+            lp, grad_lp = log_prob_and_grad(noise_kernel, noised_data)  # T x B x d
             loss = sde_noise_conditional_score_matching(score, grad_lp)
-            print(lp[0])
-            print(score[0])
-            print(grad_lp[0])
         grads = tape.gradient(loss, self.e.trainable_variables)
         self.optimizer.apply_gradients(zip(grads, self.e.trainable_variables))
         return {"Loss": loss}
-
-
-"""i1, i2 = input_shape
-i1, i2 = tf.keras.Input(shape=i1[1:]), tf.keras.Input(i2[1:])
-layers = []
-for h in hidden_layers:
-    layers.append(Dense(h, activation))
-layers.append(Dense(output_dim, activation="elu"))
-conc = Concatenate()
-x = conc([i1, i2])
-for l in layers:
-    x = l(x)
-return Sequential(layers)"""
