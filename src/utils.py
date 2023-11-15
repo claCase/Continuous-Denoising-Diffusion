@@ -18,12 +18,12 @@ from datetime import datetime
 
 
 def save_output_callback(
-        model,
-        inputs,
-        save_path: os.path,
-        every: int = 5,
-        stop: int = 300,
-        name: str = "default",
+    model,
+    inputs,
+    save_path: os.path,
+    every: int = 5,
+    stop: int = 300,
+    name: str = "default",
 ):
     now = datetime.now().isoformat()[:-7].replace(":", "_")
     save_path = os.path.join(save_path, now)
@@ -118,9 +118,9 @@ def noise(shape, type="gaussian"):
         return tf.sign(rnd)
     elif type == "spherical":
         return (
-                rnd
-                / tf.linalg.norm(rnd, axis=-1, keepdims=True)
-                * tf.math.sqrt(tf.shape(rnd)[-1])
+            rnd
+            / tf.linalg.norm(rnd, axis=-1, keepdims=True)
+            * tf.math.sqrt(tf.shape(rnd)[-1])
         )
     else:
         raise NotImplementedError(
@@ -209,9 +209,10 @@ def forward_dx(f, g, dt=1e-4, deterministic=False):
                 tf.assert_equal(
                     tf.logical_or(
                         tf.equal(gtx_shape[1], tf.constant(1, tf.int32)),
-                        tf.equal(gtx_shape[1], d)),
+                        tf.equal(gtx_shape[1], d),
+                    ),
                     True,
-                    f"Shape of variance matrix {gtx_shape[1]} is not equal to input data dimension {d}"
+                    f"Shape of variance matrix {gtx_shape[1]} is not equal to input data dimension {d}",
                 )
                 updt = ftx * dt + gtx * dW(dt, tf.shape(x))
                 return t + dt, updt, ftx, gtx
@@ -252,11 +253,12 @@ def backward_dx(f, g, grad_log_p, dt: float = 1e-4, deterministic: bool = False)
                 tf.assert_equal(
                     tf.logical_or(
                         tf.equal(gtx_shape[1], tf.constant(1, tf.int32)),
-                        tf.equal(gtx_shape[1], d)),
+                        tf.equal(gtx_shape[1], d),
+                    ),
                     True,
-                    f"Shape of variance matrix {gtx_shape[1]} is not equal to input data dimension {d}"
+                    f"Shape of variance matrix {gtx_shape[1]} is not equal to input data dimension {d}",
                 )
-                ss = gtx ** 2
+                ss = gtx**2
             else:
                 raise RuntimeError(
                     f"Shape of covariance matrix is {gtx_shape} and is not supported,"
@@ -279,7 +281,7 @@ def backward_dx(f, g, grad_log_p, dt: float = 1e-4, deterministic: bool = False)
 
         dx = (ftx - alpha * rev_var) * dt
         if deterministic:
-            return t - dt, dx, ftx, gtx
+            return t - dt, -dx, ftx, gtx
         else:
             if gtx_shape.shape[0] == 3:
                 go = tf.einsum("bio,bo->bi", gtx, dW(dt, x.shape))
@@ -290,12 +292,12 @@ def backward_dx(f, g, grad_log_p, dt: float = 1e-4, deterministic: bool = False)
                     raise RuntimeError
             else:
                 raise RuntimeError
-            return t - dt, dx + go, ftx, gtx
+            return t - dt, -dx - go, ftx, gtx
 
     return inner
 
 
-def cond(max_t=1, min_t=0.):
+def cond(max_t=1, min_t=0.0):
     def inner(t, *args, **kwargs):
         return tf.logical_and(tf.greater(t, min_t), tf.less(t, max_t))
 
@@ -304,12 +306,34 @@ def cond(max_t=1, min_t=0.):
 
 def body(f):
     def b_(
-            t, k, x, ta: tf.TensorArray, taf: tf.TensorArray = None, tag: tf.TensorArray = None
+        t: float,
+        k: int,
+        x: tf.Tensor,
+        ta: tf.TensorArray,
+        taf: tf.TensorArray = None,
+        tag: tf.TensorArray = None,
     ):
+        """
+        Body of while loop for simulating sde
+        :param t: actual time float tensor
+        :param k: iteration integer
+        :param x: initial points
+        :param ta: tensor array to store points trajectories
+        :param taf: tensor array to store drift function evaluation
+        :param tag: tensor array to store diffusion function evaluation
+        :return: t', k+1, x', ta, taf, tag
+        """
         t, fdx_, ftx, gtx = f(t, x)
         x1 = x + fdx_
         if taf is not None and tag is not None:
-            return t, k + 1, x1, ta.write(k, x1), taf.write(k, ftx), tag.write(k, gtx),
+            return (
+                t,
+                k + 1,
+                x1,
+                ta.write(k, x1),
+                taf.write(k, ftx),
+                tag.write(k, gtx),
+            )
         return t, k + 1, x1, ta.write(k, x1)
 
     return b_
@@ -353,7 +377,7 @@ def d_linear(bmin, bmax, t0=0.0, t1=1.0):
 def linear_integral(bmin, bmax, t0=0.0, t1=1.0):
     def inner(t):
         return (t * ((bmin + bmax) * t - 2 * bmin * t1 - 2 * bmax * t0)) / (
-                2 * (t1 - t0)
+            2 * (t1 - t0)
         )
 
     return inner
@@ -428,7 +452,7 @@ class DiscreteGeometricSchedule(BetaSchedule):
 
     @tf.function
     def intf(self, t):
-        return 1 / 2 * t ** 2 * (self.bmax - self.bmin) - t * self.bmin
+        return 1 / 2 * t**2 * (self.bmax - self.bmin) - t * self.bmin
 
     @tf.function
     def df(self, t):
@@ -447,14 +471,14 @@ class ContinuousGeometricSchedule(BetaSchedule):
 
     @tf.function
     def intf(self, t):
-        return self.bmin ** 2 * (self.bmax / self.bmin) ** (2 * t)
+        return self.bmin**2 * (self.bmax / self.bmin) ** (2 * t)
 
     @tf.function
     def df(self, t):
         return (
-                self.bmin
-                * (self.bmax / self.bmin) ** t
-                * tf.math.sqrt(2.0 * tf.math.log(self.bmax / self.bmin))
+            self.bmin
+            * (self.bmax / self.bmin) ** t
+            * tf.math.sqrt(2.0 * tf.math.log(self.bmax / self.bmin))
         )
 
 
@@ -484,13 +508,14 @@ def get_schedule(name):
 
 if __name__ == "__main__":
     import argparse
+    from src import plotter
 
     plt.style.use("dark_background")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--ds", default="mixed_mode")
-    parser.add_argument("--t0", default=0)
-    parser.add_argument("--t1", default=1)
+    parser.add_argument("--t0", default=0.0)
+    parser.add_argument("--t1", default=1.0)
     parser.add_argument("--n", default=600)
     parser.add_argument("--steps", default=int(1e4))
     args = parser.parse_args()
@@ -504,11 +529,11 @@ if __name__ == "__main__":
     if ds == "mixed_mode":
         x_init = tf.random.uniform(shape=(n, 3), minval=-1, maxval=1)
         ta = tf.TensorArray(tf.float32, t, element_shape=x_init.shape)
-        f, g = mixed_mode_colocation()
-        fdx2 = forward_dx(f, g, dt=dt)
-        bd2 = body(fdx2)
-        cnd = cond(t)
-        t_final, x_final, history = tf.while_loop(cnd, bd2, (0, x_init, ta))
+        f, g = plotter.mixed_mode_colocation()
+        fdx = forward_dx(f, g, dt=dt)
+        bd = body(fdx)
+        cnd = cond(t1 - dt, t0 - dt)
+        t_final, x_final, history = tf.while_loop(cnd, bd, (t0, 0, x_init, ta))
         history = history.stack().numpy()
         marg_xy = history[:, :, [0, 1]].reshape(-1, 2)
         marg_xz = history[:, :, [0, 2]].reshape(-1, 2)
