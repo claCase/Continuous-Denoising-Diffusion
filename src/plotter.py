@@ -1,4 +1,5 @@
 from tensorflow_probability.python.distributions import Distribution
+from scipy.ndimage import gaussian_filter
 import os
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib as mpl
@@ -32,7 +33,7 @@ def make_base_points(x_lim=(-5, 5), y_lim=(-5, 5), num=200):
 
 
 def make_spiral_galaxy(
-    n_spirals=5, length=1, angle=np.pi / 2, n_samples=100, noise=0, shuffle=True
+        n_spirals=5, length=1, angle=np.pi / 2, n_samples=100, noise=0, shuffle=True
 ):
     thetas = np.linspace(0, np.pi * 2, n_spirals + 1)
     thetas = thetas[:-1]
@@ -42,9 +43,9 @@ def make_spiral_galaxy(
     angles = np.linspace(thetas, thetas + angle, n_samples)
     if noise:
         angles += (
-            np.random.normal(size=angles.shape)
-            * noise
-            * np.linspace(1.5, 0.1, n_samples)[:, None]
+                np.random.normal(size=angles.shape)
+                * noise
+                * np.linspace(1.5, 0.1, n_samples)[:, None]
         )
     x0 = np.cos(angles) * radius
     x1 = np.sin(angles) * radius
@@ -80,21 +81,21 @@ def make_circle_gaussian(modes=5, sigma=1, radius=2, n_samples=100, shuffle=True
 def make_cross_shaped_distribution(n_samples):
     components = [
         MultivariateNormalTriL(
-            loc=[0, 2], scale_tril=tf.linalg.cholesky([[0.15**2, 0], [0, 1]])
+            loc=[0, 2], scale_tril=tf.linalg.cholesky([[0.15 ** 2, 0], [0, 1]])
         ),
         MultivariateNormalTriL(
-            loc=[-2, 0], scale_tril=tf.linalg.cholesky([[1, 0], [0, 0.15**2]])
+            loc=[-2, 0], scale_tril=tf.linalg.cholesky([[1, 0], [0, 0.15 ** 2]])
         ),
         MultivariateNormalTriL(
-            loc=[2, 0], scale_tril=tf.linalg.cholesky([[1, 0], [0, 0.15**2]])
+            loc=[2, 0], scale_tril=tf.linalg.cholesky([[1, 0], [0, 0.15 ** 2]])
         ),
         MultivariateNormalTriL(
-            loc=[0, -2], scale_tril=tf.linalg.cholesky([[0.15**2, 0], [0, 1]])
+            loc=[0, -2], scale_tril=tf.linalg.cholesky([[0.15 ** 2, 0], [0, 1]])
         ),
     ]
     x = np.empty((n_samples * 4, 2))
     for i, c in enumerate(components):
-        x[n_samples * i : n_samples * (i + 1), :] = c.sample(n_samples).numpy()
+        x[n_samples * i: n_samples * (i + 1), :] = c.sample(n_samples).numpy()
     y = np.repeat(np.arange(4), n_samples)
     mix = Mixture(
         cat=Categorical(probs=[1 / 4, 1 / 4, 1 / 4, 1 / 4]), components=components
@@ -110,7 +111,7 @@ def mixed_mode_colocation(n=0.01, v=0.0072168, a=-0.3872, b=-0.3251, c=1.17):
     def f(inputs):
         t, i = inputs
         x, y, z = i[:, :1], i[:, 1:2], i[:, -1:]
-        dx = 1 / n * (y - x**2 - x**3)
+        dx = 1 / n * (y - x ** 2 - x ** 3)
         dy = z - x
         dz = -v - a * x - b * y - c * z
         return tf.concat([dx, dy, dz], -1)
@@ -124,23 +125,23 @@ def mixed_mode_colocation(n=0.01, v=0.0072168, a=-0.3872, b=-0.3251, c=1.17):
 
 
 def make_grad_plot(
-    model=None,
-    x_lim=(-5, 5),
-    y_lim=(-5, 5),
-    num=50,
-    reduce=5,
-    ax=None,
-    fig=None,
-    iter=None,
-    grad=None,
-    e=None,
-    xy=None,
-    fontsize=20,
-    quiver=True,
-    contour=True,
-    title=True,
-    alpha=1,
-    cmap="viridis",
+        model=None,
+        x_lim=(-5, 5),
+        y_lim=(-5, 5),
+        num=50,
+        reduce=5,
+        ax=None,
+        fig=None,
+        iter=None,
+        grad=None,
+        e=None,
+        xy=None,
+        fontsize=20,
+        quiver=True,
+        contour=True,
+        title=True,
+        alpha=1,
+        cmap="viridis",
 ):
     assert model is not None or (grad is not None and xy is not None)
     if model is not None:
@@ -164,7 +165,7 @@ def make_grad_plot(
         if isinstance(grad, tf.Tensor):
             grad = grad.numpy()
         num = int(np.sqrt(xy.shape[0]))
-        assert num**2 == xy.shape[0]
+        assert num ** 2 == xy.shape[0]
         xx, yy = np.split(xy, 2, -1)
         xx, yy = np.reshape(xx, (num, num)), np.reshape(yy, (num, num))
     if e is not None:
@@ -217,14 +218,14 @@ def make_grad_plot(
 
 
 def make_distribution_grad_plot(
-    distr,
-    x_lim=(-5, 5),
-    y_lim=(-5, 5),
-    num=200,
-    reduce=10,
-    ax=None,
-    fig=None,
-    fontsize=20,
+        distr,
+        x_lim=(-5, 5),
+        y_lim=(-5, 5),
+        num=200,
+        reduce=10,
+        ax=None,
+        fig=None,
+        fontsize=20,
 ):
     assert issubclass(type(distr), Distribution)
     xx, yy, xy = make_base_points(x_lim, y_lim, num)
@@ -261,14 +262,14 @@ def make_distribution_grad_plot(
 
 
 def make_training_animation(
-    save_path,
-    dpi=150,
-    fps=60,
-    max_frames=None,
-    fig=None,
-    ax=None,
-    name="default",
-    **kwargs_grad_plot,
+        save_path,
+        dpi=150,
+        fps=60,
+        max_frames=None,
+        fig=None,
+        ax=None,
+        name="default",
+        **kwargs_grad_plot,
 ):
     save_name = name
     path, dirs, files = next(os.walk(save_path))
@@ -331,18 +332,18 @@ def make_training_animation(
 
 
 def plot_trajectories2D(
-    ebm=None,
-    trajectories=None,
-    fig=None,
-    ax=None,
-    marg_x=None,
-    marg_y=None,
-    x_lim=(-10, 10),
-    save_path=None,
-    name="default_trajectory",
-    dpi=90,
-    distr=None,
-    **kwargs_grad_plot,
+        ebm=None,
+        trajectories=None,
+        fig=None,
+        ax=None,
+        marg_x=None,
+        marg_y=None,
+        x_lim=(-10, 10),
+        save_path=None,
+        name="default_trajectory",
+        dpi=90,
+        distr=None,
+        **kwargs_grad_plot,
 ):
     assert ebm is not None or trajectories is not None
     if trajectories is None:
@@ -418,124 +419,137 @@ def plot_trajectories2D(
     return fig, ax, anim
 
 
-def plot_trajectories3D(
-    ebm=None,
-    trajectories=None,
-    energy=None,
-    xy=None,
-    fig=None,
-    x_lim=(-10, 10),
-    save_path=None,
-    name="default_trajectory",
-    dpi=90,
-    distr=None,
-):
-    xx, yy = None
-    if energy is not None and xy is not None:
-        assert len(energy.shape) == 2
-        e = energy
-        xx, yy = np.split(xy, 2, -1)
-        xx, yy = xx.reshape(200, 200), yy.reshape(200, 200)
-    elif ebm:
-        xx, yy, xy = make_base_points(x_lim, x_lim, 200)
-        _, e = ebm(xy)
-        e = e.numpy().reshape(200, 200)
-    else:
-        e = None
-
-    if distr is not None:
-        if xy is None:
-            xx, yy, xy = make_base_points(x_lim, x_lim, 200)
-        ll = distr.log_prob(xy)
-        ll = ll.numpy().reshape(200, 200)
-    else:
-        ll = None
-
-    if trajectories is None:
-        if ebm is not None:
-            trajectories = ebm.langevin_dynamics(
-                trajectories=True,
-                n_samples=500,
-                steps=1000,
-                levels=2,
-                sigma_high=0.5,
-                sigma_low=0.1,
-            ).numpy()[:1000:5]
-        else:
-            raise RuntimeError("Provide Energy based model or trajectories")
-    else:
-        assert len(trajectories.shape) == 4
-        if isinstance(trajectories, tf.Tensor):
-            trajectories = trajectories.numpy()
-
-    if xx is None or yy is None:
-        xx, yy = np.split(xy, 2, -1)
-        xx, yy = xx.reshape(200, 200), yy.reshape(200, 200)
+def plot_trajectories(trajectories, t_max=100, particles=10, fig=None, save_path=None, name="deafult", title="",
+                      axis_off=False):
+    assert isinstance(trajectories, np.ndarray)
+    steps = trajectories.shape[0]
+    samples = trajectories.shape[1]
+    p_id = np.random.choice(samples, particles, replace=False)
+    h_tx, e_xx1, e_tt1 = np.histogram2d(
+        trajectories[:, :, 0].flatten(), np.repeat(np.linspace(0, t_max, steps), samples),
+        bins=(np.linspace(-12, 12, 200), np.linspace(0, t_max, steps + 1)),
+        range=((-12, 12), (0, t_max))
+    )
+    tt1, xx1 = np.meshgrid(e_tt1[:-1], e_xx1[:-1])
+    gtx = gaussian_filter(h_tx, sigma=1)
+    # gtx = h_tx #gaussian_filter(h_tx, sigma=2)
+    h_ty, e_yy, e_tt1 = np.histogram2d(
+        trajectories[:, :, 1].flatten(), np.repeat(np.linspace(0, t_max, steps), samples),
+        bins=(np.linspace(-12, 12, 200), np.linspace(0, t_max, steps + 1)),
+        range=((-12, 12), (0, t_max))
+    )
+    gty = gaussian_filter(h_ty, sigma=1)
+    # gty = h_ty
+    h0, e_x, e_y = np.histogram2d(trajectories[0, :, 0], trajectories[0, :, 1], bins=(50, 50),
+                                  range=((-12, 12.4), (-12, 12.4)))
+    exx, eyy = np.meshgrid(e_x[:-1], e_y[:-1])
+    h0 = gaussian_filter(h0, sigma=2)
+    h1, e_x, e_y = np.histogram2d(trajectories[-1, :, 0], trajectories[-1, :, 1], bins=(50, 50),
+                                  range=((-12, 12.4), (-12, 12.4)))
+    h1 = gaussian_filter(h1, sigma=2)
 
     if fig is None:
-        fig = plt.figure(figsize=(10, 10))
-    ax3d = fig.add_subplot(projection="3d")
-    ax3d.set_axis_off()
-    t, n, d = trajectories.shape
+        fig = plt.figure(figsize=(15, 15))
+    ax = fig.add_subplot(projection="3d")
+    ax.computed_zorder = False
+    t0, t1 = 0, steps - 1
+    time = np.linspace(t0, t1, t1) * t_max / steps
 
-    h_x0, e_xx0, e_yy0 = np.histogram2d(
-        np.repeat(np.arange(t), n), trajectories[:, :, 0].flatten()
-    )
-    h_x1, e_xx1, e_yy1 = np.histogram2d(
-        np.repeat(np.arange(t), n), trajectories[:, :, 0].flatten()
-    )
-
-    def plot_traj3d(i):
-        ax3d.clear()
-        # Plot distribution and marginals
-        if ll is not None:
-            ax3d.contourf(
-                ll, xx, yy, offset=-1, zdir="x", cmap="Reds", alpha=0.5, zorder=-1
-            )
-        for k in range(trajectories.shape[1]):
-            ax3d.plot(
-                np.arange(k),
-                trajectories[:i, k, 0],
-                trajectories[:i, k, 1],
-                alpha=0.1,
-                color="red",
-                zorder=2,
-            )
-        if e:
-            ax3d.contourf(
-                e,
-                xx,
-                yy,
-                offset=trajectories.shape[0] + 1,
-                zdir="x",
-                cmap="Reds",
-                alpha=0.5,
-                zorder=-1,
-            )
-
-    # azim = np.linspace()
-
-    anim = mpl.animation.FuncAnimation(fig, plot_traj3d, trajectories.shape[0])
-    if save_path is not None:
-        anim.save(os.path.join(save_path, name + "_animation.gif"), fps=60, dpi=dpi)
-    return fig, anim
-
-
-def make_temporal_gradient(model):
-    steps = 30
-    n_points = 50
-    xx, yy, xy = make_base_points((-2, 2), (-2, 2), n_points)
-    t = tf.linspace(0, 1, steps)
-    tt = tf.repeat(t[:, None], n_points**2, axis=1)
-    xxyy = tf.repeat(xy[None, :], steps, axis=0)
-    rtt = tf.reshape(tt, (-1, 1))
-    rxxyy = tf.reshape(xxyy, (-1, 2))
-    grad = model.grad_energy([rtt, rxxyy])
-    grad = grad.numpy().reshape(steps, n_points, n_points, 2)
-
-    fig, ax = plt.subplots(1)
-    for i in range(steps):
+    def draw_3D(i):
         ax.clear()
+        ax.set_xlim(0, t_max)
+        ax.set_ylim(-10, 10)
+        ax.set_zlim(-10, 10)
+        if title != "":
+            ax.text(5, 5, 20, title, fontsize=35)
+        if axis_off:
+            ax.set_axis_off()
+        else:
+            ax.xaxis.set_pane_color(color=(0, 0, 0, 0), alpha=0)
+            ax.yaxis.set_pane_color(color=(0, 0, 0, 0), alpha=0)
+            ax.zaxis.set_pane_color(color=(0, 0, 0, 0), alpha=0)
+            ax.xaxis.line.set_color(color=(0, 0, 0, 0))
+            ax.yaxis.line.set_color(color=(0, 0, 0, 0))
+            ax.zaxis.line.set_color(color=(0, 0, 0, 0))
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_zticks([])
+            ax.set_ylabel("X", color="white", fontsize=20)
+            ax.set_zlabel("Y", color="white", fontsize=20)
+            ax.set_xlabel("Time", color="white", fontsize=20, labelpad=20)
+        ax.contourf(tt1, xx1, gtx, zdir="z", offset=-12, cmap="inferno", zorder=0)
+        ax.contourf(tt1, gty, xx1, zdir="y", offset=12, cmap="inferno", zorder=0)
+        ax.contourf(h0, exx, eyy, zdir="x", offset=0, cmap="inferno", zorder=0)
+        ax.contourf(h1, exx, eyy, zdir="x", offset=t_max, cmap="inferno", zorder=0, alpha=0.5)
+        for j in p_id:
+            ax.plot(time[:i], trajectories[:i, j, 0], trajectories[:i, j, 1], color="lime", alpha=1, zorder=2,
+                    linewidth=3)
+            ax.plot(time[:i], np.zeros(i) + 12, trajectories[:i, j, 1], color="black", alpha=0.1, zorder=2)
+            ax.plot(time[:i], trajectories[:i, j, 0], np.zeros(i) - 12, color="black", alpha=0.1, zorder=2)
+
+        ax.scatter([time[i]] * particles, trajectories[i, p_id, 0], trajectories[i, p_id, 1], color="white", s=30,
+                   zorder=2)
+        ax.scatter([time[i]] * particles, trajectories[i, p_id, 0], np.zeros(particles) - 12, color="black", s=10,
+                   zorder=2)
+        ax.scatter([time[i]] * particles, np.zeros(particles) + 12, trajectories[i, p_id, 1], color="black", s=10,
+                   zorder=2)
+
+    anim = animation.FuncAnimation(fig, draw_3D, frames=(t1 - t0) - 1)
+    if save_path is not None:
+        anim.save(os.path.join(save_path, f"{name}_trajectory.gif"), fps=60, dpi=90)
+    return fig, ax, anim
+
+
+def plot_gradient_field_and_energy(energy, grad, points, xx, yy, save_path=None, name="default", fig=None):
+    if fig is None:
+        fig = plt.figure(figsize=(15, 15))
+    ax = fig.add_subplot(projection="3d")
+    steps = grad.shape[0]
+    samples = grad.shape[1]
+
+    def plot3D(i):
+        ax.clear()
+        ax.set_axis_off()
         ax.set_title(f"{i}")
-        ax.quiver(xx, yy, grad[i, :, :, 0], grad[i, :, :, 1], color="blue")
-        plt.pause(0.001)
+        ax.set_xlim(-6, 6)
+        ax.set_ylim(-6, 6)
+        ax.contourf(xx, yy, energy[steps - i - 1], zdir="z", offset=-1, cmap="coolwarm")
+        ax.plot_surface(xx, yy, energy[steps - i - 1],
+                        color="royalblue", edgecolor="black", alpha=0.4, cstride=8, rstride=8)
+        ax.quiver(
+            xx,
+            yy,
+            np.zeros_like(xx) - 0.8,
+            grad[steps - i - 1, :, :, 0],
+            grad[steps - i - 1, :, :, 1],
+            np.zeros_like(xx),
+            length=.5,
+            normalize=True,
+            arrow_length_ratio=0.1,
+            color="black",
+            alpha=0.5,
+            linewidths=2
+        )
+        ax.scatter(points[i, :, 0], points[i, :, 1], np.zeros(samples) - 0.8, s=10, color="white")
+
+    anim = animation.FuncAnimation(fig, plot3D, frames=steps - 1)
+    if save_path is not None:
+        anim.save(os.path.join(save_path, f"{name}_grad&energy.gif"), fps=60, dpi=100)
+    return fig, ax, anim
+
+
+def plot_grad(grad, points, xx, yy, name="default", save_path=None):
+    fig, ax = plt.subplots(1, figsize=(15, 15))
+    steps = grad.shape[0]
+
+    def sanim(i):
+        ax.clear()
+        ax.set_xlim(-6, 6)
+        ax.set_ylim(-6, 6)
+        ax.quiver(xx, yy, grad[steps - i - 1, :, :, 0], grad[steps - i - 1, :, :, 1], color="blue")
+        ax.scatter(points[i, :, 0], points[i, :, 1], color="white", s=3)
+
+    anim = animation.FuncAnimation(fig, sanim, frames=steps - 1)
+    if save_path is not None:
+        anim.save(os.path.join(save_path, f"{name}_grad_animation.gif"), fps=60, dpi=100)
+    plt.close()
