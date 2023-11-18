@@ -35,6 +35,7 @@ Dense, AvgPool2D, GAvgPool2D, Lambda = (
 )
 Model, Sequential = tf.keras.models.Model, tf.keras.models.Sequential
 
+
 class EBMDenoisingFlow(Model):
     def __init__(
         self, train_config: dict = None, schedule: Union[str, BetaSchedule] = "linear"
