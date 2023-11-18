@@ -336,29 +336,50 @@ def plot_gradient_field_and_energy(
 def plot_particle_stream(trajectories, t_max=100):
     steps = trajectories.shape[0]
     samples = trajectories.shape[1]
-    h_tx, e_xx1, e_tt1 = np.histogram2d(
+    h_tx, e_xx, e_tt = np.histogram2d(
         trajectories[:, :, 0].flatten(),
         np.repeat(np.linspace(0, t_max, steps), samples),
         bins=(np.linspace(-12, 12, 200), np.linspace(0, t_max, steps + 1)),
         range=((-12, 12), (0, t_max)),
     )
     gtx = gaussian_filter(h_tx, sigma=1)
-    fig, ax = plt.subplots(1, figsize=(15, 10))
+    fig, ax = plt.subplots(2, figsize=(15, 10))
 
-    for i in range(steps):
-        ax.clear()
-        plt.scatter(np.arange(steps), trajectories[i, :, 1], color="blue", alpha=0.1)
-        ax.set_title(f"{i}")
-        plt.pause(0.001)
-
-
-    fig, ax = plt.subplots(2, 2, figsize=(20, 15))
-    ax[0,0].set_ylim(-10, 10)
-    ax[0,1].set_ylim(-10, 10)
-    ax[1,0].set_ylim(-10, 10)
-    ax[1,1].set_ylim(-10, 10)
+    ax[0].contourf(e_tt, e_xx, gtx.T, cmap="inferno")
     for i in range(samples):
-        ax[0, 0].plot(np.arange(steps), fw[:, i, 0], color="blue", alpha=0.1)
-        ax[0, 1].plot(np.arange(steps), fw[:, i, 1], color="blue", alpha=0.1)
-        ax[1, 0].plot(np.arange(steps), bws[:, i, 0], color="blue", alpha=0.1)
-        ax[1, 1].plot(np.arange(steps), bws[:, i, 1], color="blue", alpha=0.1)
+        ax.clear()
+        ax[1].scatter(
+            np.linspace(0, 1, steps), trajectories[:, i, 1], color="blue", alpha=0.1
+        )
+    return fig, ax
+
+
+def stack_gifs(path1, path2):
+    from PIL import Image
+
+    fw = []
+    fw_gif = Image.open(path1)
+    bw_gif = Image.open(path2)
+    bw = []
+    for i in range(bw_gif.n_frames):
+        fw_gif.seek(i)
+        bw_gif.seek(i)
+        fw_i = fw_gif.convert("RGBA")
+        bw_i = bw_gif.convert("RGBA")
+        fw.append(fw_i)
+        bw.append(bw_i)
+
+    fig, ax = plt.subplots(2, 1, figsize=(10, 21))
+
+    def stack(i):
+        print(f"frame {i}")
+        ax[0].clear()
+        ax[1].clear()
+        ax[0].set_axis_off()
+        ax[1].set_axis_off()
+        ax[0].imshow(fw[i])
+        ax[1].imshow(bw[i])
+        fig.tight_layout()
+
+    anim = animation.FuncAnimation(fig, stack, bw_gif.n_frames)
+    anim.save("./forward_backward_stacked.gif", fps=60, dpi=80)

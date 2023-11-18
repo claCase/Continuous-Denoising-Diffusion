@@ -41,7 +41,7 @@ class EBMDenoisingFlow(Model):
         self, train_config: dict = None, schedule: Union[str, BetaSchedule] = "linear"
     ):
         super().__init__()
-        base_train_cnfg = dict(t0=0.0, t1=1.0, steps=1000, deterministic=False)
+        base_train_cnfg = dict(t0=0.0, t1=1.0, steps=100, deterministic=False)
         self.train_cnfg = train_config
         if self.train_cnfg is None:
             self.train_cnfg = base_train_cnfg
@@ -258,7 +258,7 @@ class SDEVE(EBMDenoisingFlow):
         )  # each batch must have same time
         t = tf.reshape(t, (-1, 1))  # T*B x d
         with tf.GradientTape() as tape:
-            score = self.grad_energy([t, resh_noised_data])  # TxB x d
+            score = self.grad_energy([t, resh_noised_data])  # T*B x d
             score = tf.reshape(score, (T, B, d))
             lp, grad_lp = log_prob_and_grad(noise_kernel, noised_data)  # T x B x d
             loss = sde_noise_conditional_score_matching(score, grad_lp)
